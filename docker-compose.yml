@@ -1,0 +1,77 @@
+services:
+  # ════════════════════════════════════════════════════
+  # Service B - Responder (Chat Engine)
+  # ════════════════════════════════════════════════════
+  responder:
+    build:
+      context: ./service-b-responder
+      dockerfile: Dockerfile
+    container_name: minichat-responder
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - ENGINE=${ENGINE:-rulebased}
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - minichat-network
+
+  # ══════════════════════════════════════════════════════
+  # Service A - Gateway (API + SSE Streaming)
+  # ══════════════════════════════════════════════════════
+  gateway:
+    build:
+      context: ./service-a-gateway
+      dockerfile: Dockerfile
+    container_name: minichat-gateway
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - RESPONDER_URL=http://responder:3001
+      - CHUNK_SIZE=${CHUNK_SIZE:-50}
+      - CHUNK_DELAY_MS=${CHUNK_DELAY_MS:-100}
+    ports:
+      - "3000:3000"
+    depends_on:
+      responder:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - minichat-network
+
+  # ═════════════════════════════════════════════════════
+  # UI - React Frontend (Vite dev server)
+  # ═════════════════════════════════════════════════════
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    container_name: minichat-ui
+    environment:
+      - VITE_API_URL=http://localhost:3000
+    ports:
+      - "5173:5173"
+    depends_on:
+      gateway:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - minichat-network
+
+networks:
+  minichat-network:
+    driver: bridge
+    name: minichat-network
